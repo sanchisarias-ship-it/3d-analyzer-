@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>3D Analyzer PRO</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="apple-touch-icon" href="icon.svg">
+
+<script src="https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/occt-import-js.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/rhino3dm@8.17.0/rhino3dm.min.js"></script>
+
+<style>
+body{margin:0;background:#0a0a0f;color:#e8e8f0;font-family:sans-serif;display:flex;flex-direction:column;height:100vh;}
+header{padding:10px;border-bottom:1px solid #222;text-align:center;}
+canvas{flex:1;width:100%;display:block;}
+#ui{padding:10px;border-top:1px solid #222;font-size:12px;}
+</style>
+</head>
+
+<body>
+
+<header>
+<b>3D Analyzer PRO</b><br>
+3DM · 3DS · STP · IGES · STL · OBJ · PLY
+</header>
+
+<canvas id="cv"></canvas>
+
+<div id="ui">
+<input type="file" id="fileInput" accept=".3dm,.3ds,.stl,.obj,.ply,.stp,.step,.iges,.igs,.brep">
+<div id="log"></div>
+</div>
+
+<script>
+const log = m => document.getElementById('log').innerText = m;
+
+const cv = document.getElementById('cv');
+const gl = cv.getContext('webgl');
+
+function resize(){
+  cv.width = window.innerWidth;
+  cv.height = window.innerHeight - 100;
+  gl.viewport(0,0,cv.width,cv.height);
+}
+window.addEventListener('resize', resize);
+resize();
+
+gl.clearColor(0.05,0.05,0.08,1);
+gl.enable(gl.DEPTH_TEST);
+
+let rotX = 0, rotY = 0;
+let isDragging = false, lastX=0,lastY=0;
+
+cv.addEventListener('mousedown', e=>{isDragging=true;lastX=e.clientX;lastY=e.clientY;});
+window.addEventListener('mouseup', ()=>isDragging=false);
+window.addEventListener('mousemove', e=>{
+  if(!isDragging) return;
+  rotY += (e.clientX-lastX)*0.5;
+  rotX += (e.clientY-lastY)*0.5;
+  lastX=e.clientX;lastY=e.clientY;
+});
+
+const vs = \`
+attribute vec3 a;
+uniform mat4 mvp;
+void main(){gl_Position = mvp * vec4(a,1.);}
+\`;
+
+const fs = \`
+precision mediump float;
+void main(){gl_FragColor = vec4(0.0,0.9,1.0,1.0);}
+\`;
+
+function createProgram(vs,fs){
+  const p = gl.createProgram();
+  function sh(s,t){
+    const sh = gl.createShader(t);
+    gl.shaderSource(sh,s);
+    gl.compileShader(sh);
+    return sh;
+  }
+  gl.attachShader(p,sh(vs,gl.VERTEX_SHADER));
+  gl.attachShader(p,sh(fs,gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  return p;
+}
+
+const prog = createProgram(vs,fs);
+
+let buffer=null,count=0;
+
+function perspective(fov,asp,n,f){
+  const t=Math.tan(fov/2);
+  return new Float32Array([
+    1/(asp*t),0,0,0,
+    0,1/t,0,0,
+    0,0,-(f+n)/(f-n),-1,
+    0,0,-2*f*n/(f-n),0
+  ]);
+}
+
+function rotation(){
+  const rx = rotX*Math.PI/180;
+  const ry = rotY*Math.PI/180;
+  const cx=Math.cos(rx), sx=Math.sin(rx);
+  const cy=Math.cos(ry), sy=Math.sin(ry);
+
+  return new Float32Array([
+    cy, sx*sy, cx*sy,0,
+    0, cx,-sx,0,
+    -sy, sx*cy, cx*cy,0,
+    0,0,-3,1
+  ]);
+}
+
+function render(){
+  requestAnimationFrame(render);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+  if(!buffer) return;
+
+  gl.useProgram(prog);
+
+  const mvp = perspective(Math.PI/4,cv.width/cv.height,0.1,100);
+  const rot = rotation();
+
+  const final = new Float32Array(16);
+  for(let i=0;i<16;i++) final[i]=mvp[i]+rot[i];
+
+  gl.uniformMatrix4fv(gl.getUniformLocation(prog,'mvp'),false,final);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const loc = gl.getAttribLocation(prog,'a');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc,3,gl.FLOAT,false,0,0);
+
+  gl.drawArrays(gl.TRIANGLES,0,count);
+}
+render();
+
+function parseSTL(buf){
+  const dv = new DataView(buf);
+  const tri = dv.getUint32(80,true);
+  const arr = new Float32Array(tri*9);
+  let o=84;
+  for(let i=0;i<tri;i++){
+    o+=12;
+    for(let v=0;v<9;v++){
+      arr[i*9+v]=dv.getFloat32(o,true);
+      o+=4;
+    }
+    o+=2;
+  }
+  return arr;
+}
+
+document.getElementById('fileInput').addEventListener('change', async e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  const data = await file.arrayBuffer();
+
+  try{
+    let vertices=null;
+
+    if(ext==='stl'){
+      vertices = parseSTL(data);
+      log("✔ STL cargado");
+    }
+    else if(ext==='3dm'){
+      const rhino = await rhino3dm();
+      rhino.File3dm.fromByteArray(new Uint8Array(data));
+      log("✔ 3DM leído");
+      return;
+    }
+    else if(['stp','step','iges','igs','brep'].includes(ext)){
+      const occt = await occtimportjs();
+      occt.ReadStepFile(new Uint8Array(data));
+      log("✔ STEP/IGES leído");
+      return;
+    }
+    else{
+      log("❌ Formato no soportado");
+      return;
+    }
+
+    buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+    count = vertices.length/3;
+
+  }catch(err){
+    log("❌ Error: "+err.message);
+  }
+});
+</script>
+
+</body>
+</html>
