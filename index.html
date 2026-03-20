@@ -1090,7 +1090,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/3d-analyzer-/sw.js', { scope: '/3d-analyzer-/' })
-      .catch(e => console.warn('SW error:', e));
+      .catch(e => console.warn('SW:', e));
   });
 }
 let _prompt=null;
