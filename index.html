@@ -1088,8 +1088,8 @@ document.getElementById('fi').addEventListener('change', e => handleFile(e.targe
 // ════════════════════════════════════════
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/3d-analyzer-/sw.js', { scope: '/3d-analyzer-/' })
-      .then(r => console.log('SW registrado, scope:', r.scope))
+    navigator.serviceWorker
+      .register('/3d-analyzer-/sw.js', { scope: '/3d-analyzer-/' })
       .catch(e => console.warn('SW error:', e));
   });
 }
