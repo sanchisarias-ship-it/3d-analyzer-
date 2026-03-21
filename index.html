@@ -1086,13 +1086,7 @@ document.getElementById('fi').addEventListener('change', e => handleFile(e.targe
 // ════════════════════════════════════════
 //  PWA
 // ════════════════════════════════════════
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/3d-analyzer-/sw.js', { scope: '/3d-analyzer-/' })
-      .catch(e => console.warn('SW:', e));
-  });
-}
+// Service Worker disabled — not needed for GitHub Pages
 let _prompt=null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); _prompt=e; document.getElementById('btnInstall').style.display='flex'; });
 window.addEventListener('appinstalled',         () => { document.getElementById('btnInstall').style.display='none'; _prompt=null; });
